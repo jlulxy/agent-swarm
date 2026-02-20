@@ -1,5 +1,5 @@
 <p align="center">
-  <h1 align="center">🐝 Agent Hive</h1>
+  <h1 align="center">🐝 Agent Swarm</h1>
   <p align="center"><strong>让 AI 像顶尖咨询团队一样协作</strong></p>
   <p align="center">动态涌现角色 · 认知对齐通讯 · 专业技能注入 · 交付物导向</p>
   <p align="center"><a href="README.md">English</a> | 中文</p>
@@ -20,7 +20,7 @@
 
 大多数 Multi-Agent 系统沿袭了"固定岗位"模式——开发者预先定义好角色和流水线，Agent 按流程图执行。这种方式面对开放式的复杂任务时，会遇到**角色不匹配、协作靠拼接、产出难交付**三大结构性问题。
 
-Agent Hive 换了一种思路：**借鉴顶尖咨询公司的项目制团队运作模式**。面对每一个新任务，由 LLM 从零分析需要什么样的专家、如何分工、如何协作，动态"涌现"一支最合适的团队——任务结束后团队解散，能力回归池中。
+Agent Swarm 换了一种思路：**借鉴顶尖咨询公司的项目制团队运作模式**。面对每一个新任务，由 LLM 从零分析需要什么样的专家、如何分工、如何协作，动态"涌现"一支最合适的团队——任务结束后团队解散，能力回归池中。
 
 这不是工程上的微调，而是范式上的跃迁：从"预定义流水线"到"自组织专家蜂巢"。
 
@@ -30,7 +30,7 @@ Agent Hive 换了一种思路：**借鉴顶尖咨询公司的项目制团队运�
 
 ### 1. 动态角色涌现
 
-传统框架需要开发者预设 `Agent(role="researcher")` 等固定角色。Agent Hive 的 **角色涌现引擎** 让 LLM 根据任务本质自主规划：
+传统框架需要开发者预设 `Agent(role="researcher")` 等固定角色。Agent Swarm 的 **角色涌现引擎** 让 LLM 根据任务本质自主规划：
 
 ```
 用户输入: "分析《花样年华》的镜头语言"
@@ -46,10 +46,10 @@ Agent Hive 换了一种思路：**借鉴顶尖咨询公司的项目制团队运�
 
 ### 2. 中继站认知对齐
 
-多数并发方案是"放羊式"的——Agent 各干各的，最后堆砌合并。Agent Hive 引入了 **中继站（Relay Station）** 机制，实现实时认知同步：
+多数并发方案是"放羊式"的——Agent 各干各的，最后堆砌合并。Agent Swarm 引入了 **中继站（Relay Station）** 机制，实现实时认知同步：
 
 ```
-传统 2D 并发:                    Agent Hive 3D 编排:
+传统 2D 并发:                    Agent Swarm 3D 编排:
                                         ┌──────────────┐
 Agent A ──▶ 结果A ─┐                    │   中继站      │
 Agent B ──▶ 结果B ─┼─▶ 堆砌       ┌────┤  (战情室)    ├────┐
@@ -64,7 +64,7 @@ Agent C ──▶ 结果C ─┘             ↕    ↕              ↕    ↕
 
 ### 3. 专业技能注入
 
-纯 LLM 推理存在输出不稳定和能力天花板两大问题。Agent Hive 通过**双通道技能注入**同时解决：
+纯 LLM 推理存在输出不稳定和能力天花板两大问题。Agent Swarm 通过**双通道技能注入**同时解决：
 
 | 通道 | 机制 | 效果 |
 |------|------|------|
@@ -77,7 +77,7 @@ Agent C ──▶ 结果C ─┘             ↕    ↕              ↕    ↕
 
 ### 4. 交付物导向产出
 
-LLM 最常见的问题是"形式漂亮、内容空洞"。Agent Hive 在角色涌现时就锚定每个 Agent 必须交付什么：
+LLM 最常见的问题是"形式漂亮、内容空洞"。Agent Swarm 在角色涌现时就锚定每个 Agent 必须交付什么：
 
 ```python
 # 角色涌现时自动定义
@@ -156,8 +156,8 @@ LLM 最常见的问题是"形式漂亮、内容空洞"。Agent Hive 在角色涌
 ### 方式一：一键启动
 
 ```bash
-git clone https://github.com/agent-hive/agent-hive.git
-cd agent-hive
+git clone https://github.com/jlulxy/agent-swarm.git
+cd agent-swarm
 
 # 配置 API Key
 cp backend/.env.example backend/.env
@@ -219,7 +219,7 @@ npm run dev
 
 ## 与主流方案的定位差异
 
-| 维度 | 单体 Agent (Claude Code 等) | 预定义 Multi-Agent (AutoGen/CrewAI) | **Agent Hive** |
+| 维度 | 单体 Agent (Claude Code 等) | 预定义 Multi-Agent (AutoGen/CrewAI) | **Agent Swarm** |
 |------|---------------------------|--------------------------------------|----------------|
 | 角色 | 固定角色 | 开发者预设 | **LLM 动态涌现** |
 | 协作 | 主-子调度 | 预设流程图 | **中继站实时对齐** |
@@ -227,7 +227,7 @@ npm run dev
 | 产出 | 代码/对话 | 各自独立输出 | **交付物导向 + 成功标准** |
 | 最佳场景 | 线性任务 | 固定流程任务 | **开放式复杂协作任务** |
 
-Agent Hive 不是要取代单体 Agent 或固定流程框架——当任务复杂到需要"组建专家团队"而非"找一个高手"时，Agent Hive 是更优选择。
+Agent Swarm 不是要取代单体 Agent 或固定流程框架——当任务复杂到需要"组建专家团队"而非"找一个高手"时，Agent Swarm 是更优选择。
 
 ---
 
@@ -264,7 +264,7 @@ JWT_SECRET=change-this-to-a-random-string
 ## 项目结构
 
 ```
-agent-hive/
+agent-swarm/
 ├── backend/
 │   ├── main.py              # 入口
 │   ├── core/                # 核心引擎

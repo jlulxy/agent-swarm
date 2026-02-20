@@ -26,21 +26,21 @@ class StorageConfig:
     storage_type: StorageType = StorageType.SQLITE
     
     # SQLite 配置
-    sqlite_path: str = "data/agent_hive.db"
+    sqlite_path: str = "data/agent_swarm.db"
     
     # MySQL 配置
     mysql_host: str = "localhost"
     mysql_port: int = 3306
     mysql_user: str = "root"
     mysql_password: str = ""
-    mysql_database: str = "agent_hive"
+    mysql_database: str = "agent_swarm"
     
     # PostgreSQL 配置
     postgres_host: str = "localhost"
     postgres_port: int = 5432
     postgres_user: str = "postgres"
     postgres_password: str = ""
-    postgres_database: str = "agent_hive"
+    postgres_database: str = "agent_swarm"
     
     # 连接池配置
     pool_size: int = 5
@@ -66,21 +66,21 @@ class StorageConfig:
             storage_type=storage_type,
             
             # SQLite
-            sqlite_path=os.getenv("SQLITE_PATH", "data/agent_hive.db"),
+            sqlite_path=os.getenv("SQLITE_PATH", "data/agent_swarm.db"),
             
             # MySQL
             mysql_host=os.getenv("MYSQL_HOST", "localhost"),
             mysql_port=int(os.getenv("MYSQL_PORT", "3306")),
             mysql_user=os.getenv("MYSQL_USER", "root"),
             mysql_password=os.getenv("MYSQL_PASSWORD", ""),
-            mysql_database=os.getenv("MYSQL_DATABASE", "agent_hive"),
+            mysql_database=os.getenv("MYSQL_DATABASE", "agent_swarm"),
             
             # PostgreSQL
             postgres_host=os.getenv("POSTGRES_HOST", "localhost"),
             postgres_port=int(os.getenv("POSTGRES_PORT", "5432")),
             postgres_user=os.getenv("POSTGRES_USER", "postgres"),
             postgres_password=os.getenv("POSTGRES_PASSWORD", ""),
-            postgres_database=os.getenv("POSTGRES_DATABASE", "agent_hive"),
+            postgres_database=os.getenv("POSTGRES_DATABASE", "agent_swarm"),
             
             # 连接池
             pool_size=int(os.getenv("DB_POOL_SIZE", "5")),

@@ -321,7 +321,7 @@ export default function App() {
                 <Sparkles className="w-5 h-5 text-white" />
               </div>
               <div>
-                <h1 className="font-bold text-lg">Agent Hive</h1>
+                <h1 className="font-bold text-lg">Agent Swarm</h1>
                 <p className="text-xs text-dark-400">角色涌现 × 3D编排 × AG-UI</p>
               </div>
             </div>
@@ -367,7 +367,7 @@ export default function App() {
               </button>
               
               <a
-                href="https://github.com/agent-hive/agent-hive"
+                href="https://github.com/jlulxy/agent-swarm"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="p-2 rounded-lg hover:bg-dark-800 transition-colors"

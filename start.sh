@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# Agent Hive 启动脚本
+# Agent Swarm 启动脚本
 
-echo "🐝 Starting Agent Hive..."
+echo "🐝 Starting Agent Swarm..."
 
 # 检查是否有 .env 文件
 if [ ! -f "backend/.env" ]; then
@@ -31,7 +31,7 @@ FRONTEND_PID=$!
 cd ..
 
 echo ""
-echo "✅ Agent Hive is running!"
+echo "✅ Agent Swarm is running!"
 echo ""
 echo "   Backend:  http://localhost:8000"
 echo "   Frontend: http://localhost:3000"

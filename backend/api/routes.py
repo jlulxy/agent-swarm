@@ -1033,7 +1033,7 @@ async def health_check() -> Dict[str, Any]:
     stats = await session_manager.get_full_stats()
     return {
         "status": "healthy",
-        "service": "Agent Hive",
+        "service": "Agent Swarm",
         "version": "1.1.0",
         "session_manager_stats": stats
     }

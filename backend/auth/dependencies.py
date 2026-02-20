@@ -24,7 +24,7 @@ def get_auth_provider() -> AuthProvider:
     """获取全局 AuthProvider 单例"""
     global _auth_provider
     if _auth_provider is None:
-        secret_key = os.getenv("JWT_SECRET", "agent-hive-default-secret-change-me")
+        secret_key = os.getenv("JWT_SECRET", "agent-swarm-default-secret-change-me")
         token_expire_hours = int(os.getenv("JWT_EXPIRE_HOURS", "24"))
         repo = get_repository()
         _auth_provider = LocalAuthProvider(

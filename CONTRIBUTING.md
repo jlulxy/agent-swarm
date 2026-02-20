@@ -1,6 +1,6 @@
 # 贡献指南
 
-感谢你对 Agent Hive 的关注！欢迎任何形式的贡献。
+感谢你对 Agent Swarm 的关注！欢迎任何形式的贡献。
 
 ## 如何贡献
 
@@ -33,7 +33,7 @@
 ```bash
 # 克隆仓库
 git clone <repo-url>
-cd agent-hive
+cd agent-swarm
 
 # 后端
 cd backend

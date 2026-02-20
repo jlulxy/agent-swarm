@@ -1,5 +1,5 @@
 """
-Agent Hive - 主入口
+Agent Swarm - 主入口
 
 启动 FastAPI 服务，支持 AG-UI 协议
 """
@@ -29,11 +29,11 @@ skill_registry = _init_skills()
 
 # 创建 FastAPI 应用
 app = FastAPI(
-    title="Agent Hive",
+    title="Agent Swarm",
     description="""
-# 🐝 Agent Hive API
+# 🐝 Agent Swarm API
 
-一个支持**动态角色涌现**和 **3D 编排式协作**的智能 Agent 协作蜂巢系统。
+一个支持**动态角色涌现**和 **3D 编排式协作**的智能 Agent 蜂群协作系统。
 
 ## 核心特性
 
@@ -71,7 +71,7 @@ app.include_router(router, prefix="/api")
 async def root():
     """根路由"""
     return {
-        "name": "Agent Hive",
+        "name": "Agent Swarm",
         "version": "1.0.0",
         "docs": "/docs",
         "api": "/api"
@@ -85,7 +85,7 @@ if __name__ == "__main__":
     print(f"""
     ╔═══════════════════════════════════════════════════════════╗
     ║                                                           ║
-    ║   🐝 Agent Hive                                            ║
+    ║   🐝 Agent Swarm                                           ║
     ║                                                           ║
     ║   角色涌现 × 3D编排 × AG-UI协议                            ║
     ║                                                           ║

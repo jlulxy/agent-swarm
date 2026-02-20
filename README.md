@@ -1,5 +1,5 @@
 <p align="center">
-  <h1 align="center">🐝 Agent Hive</h1>
+  <h1 align="center">🐝 Agent Swarm</h1>
   <p align="center"><strong>Make AI collaborate like an elite consulting team</strong></p>
   <p align="center">Emergent Roles · Cognitive Alignment · Skill Injection · Deliverable-Driven Output</p>
   <p align="center">English | <a href="README_CN.md">中文</a></p>
@@ -19,7 +19,7 @@
 
 Most multi-agent systems follow a "fixed job" paradigm — developers predefine roles and pipelines, and agents execute according to flowcharts. This approach hits three structural walls when facing open-ended complex tasks: **role mismatch, stitched-together collaboration, and undeliverable output**.
 
-Agent Hive takes a different approach: **it borrows from how elite consulting firms run project-based teams**. For every new task, the LLM analyzes from scratch what experts are needed, how to divide work, and how to collaborate — dynamically "emerging" the optimal team. When the task is done, the team dissolves and capabilities return to the pool.
+Agent Swarm takes a different approach: **it borrows from how elite consulting firms run project-based teams**. For every new task, the LLM analyzes from scratch what experts are needed, how to divide work, and how to collaborate — dynamically "emerging" the optimal team. When the task is done, the team dissolves and capabilities return to the pool.
 
 This is not an engineering tweak, but a paradigm shift: from "predefined pipelines" to a **"self-organizing expert hive"**.
 
@@ -29,7 +29,7 @@ This is not an engineering tweak, but a paradigm shift: from "predefined pipelin
 
 ### 1. Dynamic Role Emergence
 
-Traditional frameworks require developers to predefine `Agent(role="researcher")` and similar fixed roles. Agent Hive's **Role Emergence Engine** lets the LLM autonomously plan based on the task's nature:
+Traditional frameworks require developers to predefine `Agent(role="researcher")` and similar fixed roles. Agent Swarm's **Role Emergence Engine** lets the LLM autonomously plan based on the task's nature:
 
 ```
 User input: "Analyze the cinematography of In the Mood for Love"
@@ -45,10 +45,10 @@ Each emerged role is not just a name tag, but a complete expert profile with **w
 
 ### 2. Relay Station Cognitive Alignment
 
-Most concurrent approaches are "hands-off" — agents work in isolation, then results are piled together. Agent Hive introduces the **Relay Station** mechanism for real-time cognitive synchronization:
+Most concurrent approaches are "hands-off" — agents work in isolation, then results are piled together. Agent Swarm introduces the **Relay Station** mechanism for real-time cognitive synchronization:
 
 ```
-Traditional 2D Concurrency:           Agent Hive 3D Orchestration:
+Traditional 2D Concurrency:           Agent Swarm 3D Orchestration:
                                             ┌──────────────┐
 Agent A ──▶ Result A ─┐                     │ Relay Station │
 Agent B ──▶ Result B ─┼─▶ Pile up     ┌────┤  (War Room)   ├────┐
@@ -63,7 +63,7 @@ Users can initiate **human intervention** at any time, which is broadcast throug
 
 ### 3. Professional Skill Injection
 
-Pure LLM reasoning suffers from unstable output and capability ceilings. Agent Hive addresses both through **dual-channel skill injection**:
+Pure LLM reasoning suffers from unstable output and capability ceilings. Agent Swarm addresses both through **dual-channel skill injection**:
 
 | Channel | Mechanism | Effect |
 |---------|-----------|--------|
@@ -76,7 +76,7 @@ The skill system is easily extensible: add a `SKILL.md` and scripts under `backe
 
 ### 4. Deliverable-Driven Output
 
-The most common LLM problem is "nice form, hollow content." Agent Hive anchors what each agent must deliver at role emergence time:
+The most common LLM problem is "nice form, hollow content." Agent Swarm anchors what each agent must deliver at role emergence time:
 
 ```python
 # Automatically defined during role emergence
@@ -155,8 +155,8 @@ This **"Goal Anchoring → Output Anchoring → Process Anchoring → Quality An
 ### Option 1: One-Click Launch
 
 ```bash
-git clone https://github.com/jlulxy/agent-hive.git
-cd agent-hive
+git clone https://github.com/jlulxy/agent-swarm.git
+cd agent-swarm
 
 # Configure API Key
 cp backend/.env.example backend/.env
@@ -218,7 +218,7 @@ The system emerges a Creative Director, Content Planner, and Visual Designer, re
 
 ## Positioning vs. Mainstream Approaches
 
-| Dimension | Monolithic Agent (Claude Code, etc.) | Predefined Multi-Agent (AutoGen/CrewAI) | **Agent Hive** |
+| Dimension | Monolithic Agent (Claude Code, etc.) | Predefined Multi-Agent (AutoGen/CrewAI) | **Agent Swarm** |
 |-----------|--------------------------------------|------------------------------------------|----------------|
 | Roles | Fixed role | Developer-preset | **LLM dynamically emerged** |
 | Collaboration | Master-sub dispatch | Preset flowchart | **Relay Station real-time alignment** |
@@ -226,7 +226,7 @@ The system emerges a Creative Director, Content Planner, and Visual Designer, re
 | Output | Code/dialogue | Independent per agent | **Deliverable-driven + success criteria** |
 | Best For | Linear tasks | Fixed-process tasks | **Open-ended complex collaboration** |
 
-Agent Hive is not meant to replace monolithic agents or fixed-process frameworks — when a task is complex enough to need "assembling an expert team" rather than "finding one expert," Agent Hive is the better choice.
+Agent Swarm is not meant to replace monolithic agents or fixed-process frameworks — when a task is complex enough to need "assembling an expert team" rather than "finding one expert," Agent Swarm is the better choice.
 
 ---
 
@@ -263,7 +263,7 @@ See `backend/.env.example` for all configuration options.
 ## Project Structure
 
 ```
-agent-hive/
+agent-swarm/
 ├── backend/
 │   ├── main.py              # Entry point
 │   ├── core/                # Core engine

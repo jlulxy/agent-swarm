@@ -94,7 +94,7 @@ export function LoginPage() {
             <Sparkles className="w-8 h-8 text-white" />
           </motion.div>
           <h1 className="text-2xl font-bold text-[#F8FAFC] tracking-tight">
-            Agent Hive
+            Agent Swarm
           </h1>
           <p className="text-sm text-[#64748B] mt-1">角色涌现 × 3D编排 × AG-UI</p>
         </div>

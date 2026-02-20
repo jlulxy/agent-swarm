@@ -1,7 +1,7 @@
 version: "3.8"
 
 services:
-  agent-hive:
+  agent-swarm:
     build: .
     ports:
       - "3000:3000"   # 前端 (nginx)
@@ -13,8 +13,8 @@ services:
       - PORT=8000
       - CORS_ORIGINS=http://localhost:3000
     volumes:
-      - hive-data:/app/backend/data   # 持久化数据库
+      - swarm-data:/app/backend/data   # 持久化数据库
     restart: unless-stopped
 
 volumes:
-  hive-data:
+  swarm-data:

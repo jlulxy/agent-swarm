@@ -1,0 +1,20 @@
+version: "3.8"
+
+services:
+  agent-hive:
+    build: .
+    ports:
+      - "3000:3000"   # 前端 (nginx)
+      - "8000:8000"   # 后端 API & Docs
+    env_file:
+      - backend/.env
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8000
+      - CORS_ORIGINS=http://localhost:3000
+    volumes:
+      - hive-data:/app/backend/data   # 持久化数据库
+    restart: unless-stopped
+
+volumes:
+  hive-data:

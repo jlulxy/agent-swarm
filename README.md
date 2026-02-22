@@ -226,6 +226,34 @@ The system emerges a Creative Director, Content Planner, and Visual Designer, re
 
 ---
 
+## Screenshots
+
+### Emergence Mode Overview
+
+After analyzing the task, the Master Agent dynamically emerges an expert team. The panoramic view on the right shows each agent's runtime status and progress:
+
+<p align="center">
+  <img src="docs/images/emergent_overview.png" width="800" alt="Emergence Mode Overview — Task Analysis & Agent Panorama" />
+</p>
+
+### Role Emergence Details
+
+Each emerged role includes a complete profile with role summary, core capabilities, methodology, and collaboration triggers:
+
+<p align="center">
+  <img src="docs/images/emergent_agents.png" width="800" alt="Role Emergence — Skill Assignment & Methodology" />
+</p>
+
+### Agent Work Process
+
+Agents invoke professional tools (search, data analysis, etc.) through the skill system during execution. The right panel shows skill invocation records:
+
+<p align="center">
+  <img src="docs/images/emergent_agent_detail.png" width="800" alt="Agent Work Process — Skill Invocation & Execution Records" />
+</p>
+
+---
+
 ## Positioning vs. Mainstream Approaches
 
 | Dimension | Monolithic Agent (Claude Code, etc.) | Predefined Multi-Agent (AutoGen/CrewAI) | **Agent Swarm** |

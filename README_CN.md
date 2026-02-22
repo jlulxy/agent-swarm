@@ -227,6 +227,34 @@ npm run dev
 
 ---
 
+## 效果预览
+
+### 涌现模式全景
+
+Master Agent 分析任务后动态涌现专家团队，右侧全景图实时展示各 Agent 的运行状态与进度：
+
+<p align="center">
+  <img src="docs/images/emergent_overview.png" width="800" alt="涌现模式概览 — 任务分析与 Agent 全景图" />
+</p>
+
+### 角色涌现详情
+
+每个涌现角色包含完整的角色简介、核心能力、工作方法论与协作触发器：
+
+<p align="center">
+  <img src="docs/images/emergent_agents.png" width="800" alt="角色涌现 — 技能分配与工作方法论" />
+</p>
+
+### Agent 工作过程
+
+Agent 执行过程中通过技能系统调用专业工具（搜索、数据分析等），右侧面板展示技能调用记录：
+
+<p align="center">
+  <img src="docs/images/emergent_agent_detail.png" width="800" alt="Agent 工作过程 — 技能调用与执行记录" />
+</p>
+
+---
+
 ## 与主流方案的定位差异
 
 | 维度 | 单体 Agent (Claude Code 等) | 预定义 Multi-Agent (AutoGen/CrewAI) | **Agent Swarm** |

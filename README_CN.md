@@ -253,6 +253,14 @@ Agent 执行过程中通过技能系统调用专业工具（搜索、数据分�
   <img src="docs/images/emergent_agent_detail.png" width="800" alt="Agent 工作过程 — 技能调用与执行记录" />
 </p>
 
+### 中继站协作消息
+
+Subagent 之间通过中继站进行实时信息交换与对齐，支持阶段性数据移交和人工干预广播：
+
+<p align="center">
+  <img src="docs/images/relay_station.png" width="400" alt="中继站 — Subagent 协作消息与数据对齐" />
+</p>
+
 ---
 
 ## 与主流方案的定位差异

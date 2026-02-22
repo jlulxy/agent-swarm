@@ -252,6 +252,14 @@ Agents invoke professional tools (search, data analysis, etc.) through the skill
   <img src="docs/images/emergent_agent_detail.png" width="800" alt="Agent Work Process — Skill Invocation & Execution Records" />
 </p>
 
+### Relay Station Collaboration
+
+Subagents exchange information and align progress in real-time through the Relay Station, supporting phased data handoff and human intervention broadcasts:
+
+<p align="center">
+  <img src="docs/images/relay_station.png" width="400" alt="Relay Station — Subagent Collaboration & Data Alignment" />
+</p>
+
 ---
 
 ## Positioning vs. Mainstream Approaches

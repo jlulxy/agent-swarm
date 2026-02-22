@@ -379,7 +379,14 @@ async def execute_task_stream(request: TaskRequest, user_id: Optional[str] = Dep
             await session_manager.broadcast_state_changed(session_id, change_type, summary)
     
     async def event_generator():
-        """事件生成器"""
+        """事件生成器（带心跳保活）
+        
+        涌现模式中 Subagent 并行执行，LLM 调用可能耗时数十秒，
+        期间 SSE 流无数据输出会导致浏览器/代理判定连接已死而断开。
+        通过定期发送 SSE 心跳注释保持连接活跃。
+        """
+        HEARTBEAT_INTERVAL = 15  # 秒，心跳间隔
+        
         try:
             # 首先发送 session_id 给前端
             session_event = {
@@ -398,13 +405,27 @@ async def execute_task_stream(request: TaskRequest, user_id: Optional[str] = Dep
                     previous_context=previous_context,
                     previous_roles=previous_roles,
                 )
-            async for event in task_stream:
-                # 【重要改动】同步等待持久化和广播完成
-                await persist_and_broadcast(event)
-                
-                # 转换为 SSE 格式
-                yield event.to_sse()
-                await asyncio.sleep(0.01)  # 小延迟避免过快
+            
+            # 使用异步迭代器 + 超时心跳机制
+            aiter = task_stream.__aiter__()
+            while True:
+                try:
+                    event = await asyncio.wait_for(
+                        aiter.__anext__(),
+                        timeout=HEARTBEAT_INTERVAL
+                    )
+                    # 正常收到事件：持久化 + 广播 + 发送
+                    await persist_and_broadcast(event)
+                    yield event.to_sse()
+                    await asyncio.sleep(0.01)  # 小延迟避免过快
+                except asyncio.TimeoutError:
+                    # 超时未收到事件：发送 SSE 心跳注释保持连接
+                    # SSE 规范中以 ":" 开头的行是注释，浏览器 EventSource 会忽略
+                    # 但对于手动解析的 ReadableStream，需前端配合过滤
+                    yield ": heartbeat\n\n"
+                except StopAsyncIteration:
+                    # 事件流结束
+                    break
         except Exception as e:
             # 发送错误事件
             error_event = {

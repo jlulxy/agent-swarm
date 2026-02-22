@@ -470,6 +470,10 @@ export function useAgui() {
         buffer = lines.pop() || '';
 
         for (const line of lines) {
+          // SSE 心跳注释行（以 ":" 开头），用于保持长连接活跃，直接跳过
+          if (line.startsWith(':')) {
+            continue;
+          }
           if (line.startsWith('event: ')) {
             currentEvent = line.slice(7);
             console.log(`[SSE Parse] Got event line: "${currentEvent}"`);

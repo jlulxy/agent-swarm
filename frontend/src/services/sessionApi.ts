@@ -286,6 +286,7 @@ export async function fetchSessionLiveState(sessionId: string): Promise<{
     session_id: string;
     task?: string;
     status?: string;
+    mode?: string;
     plan?: any;
     agents: Array<{
       agent_id: string;

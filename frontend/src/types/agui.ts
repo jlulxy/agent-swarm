@@ -255,6 +255,7 @@ export interface StateSnapshotEvent extends BaseEvent {
     is_live: boolean;
     task?: string;
     status?: string;
+    mode?: string;
     plan?: any;
     agents: any[];
     relay_stations: any[];

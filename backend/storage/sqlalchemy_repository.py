@@ -186,13 +186,8 @@ class SQLAlchemyRepository(
                 query = query.filter_by(status=status)
             
             if user_id:
-                # 同时返回该用户的会话和 user_id 为空的历史会话（兼容旧数据）
-                query = query.filter(
-                    or_(
-                        SessionModel.user_id == user_id,
-                        SessionModel.user_id.is_(None),
-                    )
-                )
+                # 严格按用户隔离，只返回当前用户自己的会话
+                query = query.filter(SessionModel.user_id == user_id)
             
             # 排序
             order_column = getattr(SessionModel, order_by, SessionModel.created_at)
@@ -206,12 +201,14 @@ class SQLAlchemyRepository(
             
             return [self._model_to_session_record(m) for m in models]
     
-    async def count_sessions(self, status: Optional[str] = None) -> int:
-        """统计会话数量"""
+    async def count_sessions(self, status: Optional[str] = None, user_id: Optional[str] = None) -> int:
+        """统计会话数量（按用户隔离）"""
         with self.get_db_session() as session:
             query = session.query(SessionModel)
             if status:
                 query = query.filter_by(status=status)
+            if user_id:
+                query = query.filter(SessionModel.user_id == user_id)
             return query.count()
     
     async def touch_session(self, session_id: str) -> bool:

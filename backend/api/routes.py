@@ -543,8 +543,8 @@ async def list_sessions(
             limit=limit,
             offset=offset
         )
-        total = await session_manager.count_sessions_from_db(status)
-        stats = await session_manager.get_full_stats()
+        total = await session_manager.count_sessions_from_db(status, user_id=user_id)
+        stats = await session_manager.get_full_stats(user_id=user_id)
     else:
         # 从内存查询
         sessions = session_manager.list_sessions(user_id=user_id)

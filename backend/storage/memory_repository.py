@@ -105,8 +105,8 @@ class MemoryRepository(
             records = [r for r in records if r.status == status]
         
         if user_id:
-            # 同时返回该用户的会话和 user_id 为空的历史会话（兼容旧数据）
-            records = [r for r in records if r.user_id == user_id or r.user_id is None]
+            # 严格按用户隔离，只返回当前用户自己的会话
+            records = [r for r in records if r.user_id == user_id]
         
         # 排序
         records.sort(
@@ -117,9 +117,13 @@ class MemoryRepository(
         # 分页
         return [deepcopy(r) for r in records[offset:offset + limit]]
     
-    async def count_sessions(self, status: Optional[str] = None) -> int:
-        if status:
+    async def count_sessions(self, status: Optional[str] = None, user_id: Optional[str] = None) -> int:
+        if status and user_id:
+            return sum(1 for r in self._sessions.values() if r.status == status and r.user_id == user_id)
+        elif status:
             return sum(1 for r in self._sessions.values() if r.status == status)
+        elif user_id:
+            return sum(1 for r in self._sessions.values() if r.user_id == user_id)
         return len(self._sessions)
     
     async def touch_session(self, session_id: str) -> bool:

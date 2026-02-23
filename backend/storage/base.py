@@ -316,8 +316,8 @@ class BaseSessionRepository(ABC):
         pass
     
     @abstractmethod
-    async def count_sessions(self, status: Optional[str] = None) -> int:
-        """统计会话数量"""
+    async def count_sessions(self, status: Optional[str] = None, user_id: Optional[str] = None) -> int:
+        """统计会话数量（按用户隔离）"""
         pass
     
     @abstractmethod

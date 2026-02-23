@@ -491,11 +491,14 @@ class SessionManager:
             return None
     
     def list_sessions(self, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
-        """列出所有活跃会话（内存缓存）"""
-        sessions = self._sessions.values()
-        if user_id:
-            # 同时返回该用户的会话和 user_id 为空的历史会话（兼容旧数据）
-            sessions = [info for info in sessions if info.user_id == user_id or info.user_id is None]
+        """列出所有活跃会话（内存缓存）
+        
+        数据隔离：严格按 user_id 过滤，只返回当前用户自己的会话。
+        user_id 为 None 时返回空列表，防止未认证用户看到所有数据。
+        """
+        if not user_id:
+            return []
+        sessions = [info for info in self._sessions.values() if info.user_id == user_id]
         return [
             {
                 "session_id": info.session_id,
@@ -544,11 +547,11 @@ class SessionManager:
             logger.error(f"[SessionManager] Failed to list sessions from DB: {e}")
             return []
     
-    async def count_sessions_from_db(self, status: Optional[str] = None) -> int:
-        """统计数据库中的会话数量"""
+    async def count_sessions_from_db(self, status: Optional[str] = None, user_id: Optional[str] = None) -> int:
+        """统计数据库中的会话数量（按用户隔离）"""
         try:
             repo = self.get_repository()
-            return await repo.count_sessions(status)
+            return await repo.count_sessions(status, user_id=user_id)
         except Exception as e:
             logger.error(f"[SessionManager] Failed to count sessions: {e}")
             return 0
@@ -847,14 +850,14 @@ class SessionManager:
             "has_repository": self._repository is not None,
         }
     
-    async def get_full_stats(self) -> Dict[str, Any]:
-        """获取完整统计信息（包括数据库）"""
+    async def get_full_stats(self, user_id: Optional[str] = None) -> Dict[str, Any]:
+        """获取完整统计信息（包括数据库，按用户隔离）"""
         stats = self.get_stats()
         
         try:
-            total_count = await self.count_sessions_from_db()
-            active_count = await self.count_sessions_from_db(status="active")
-            completed_count = await self.count_sessions_from_db(status="completed")
+            total_count = await self.count_sessions_from_db(user_id=user_id)
+            active_count = await self.count_sessions_from_db(status="active", user_id=user_id)
+            completed_count = await self.count_sessions_from_db(status="completed", user_id=user_id)
             
             stats.update({
                 "db_total_sessions": total_count,

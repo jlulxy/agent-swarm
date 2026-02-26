@@ -9,7 +9,7 @@ Skills - 技能注册表
 """
 
 import logging
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set, Any
 from pathlib import Path
 from datetime import datetime
 
@@ -195,6 +195,10 @@ class SkillRegistry:
     def count(self) -> int:
         """获取技能数量"""
         return len(self._skills)
+
+    def get_last_update_timestamp(self) -> float:
+        """获取最近更新时间戳（用于会话快照一致性判断）"""
+        return self._last_update.timestamp()
     
     def list_names(self) -> List[str]:
         """列出所有技能名称"""
@@ -369,7 +373,7 @@ class SkillRegistry:
     def get_tool_definitions(
         self,
         skill_names: Optional[List[str]] = None
-    ) -> List[Dict]:
+    ) -> List[Dict[str, Any]]:
         """
         获取技能的 Tool 定义（用于 Function Calling）
         

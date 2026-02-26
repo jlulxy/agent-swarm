@@ -50,10 +50,16 @@ class SkillMetadata(BaseModel):
     version: str = "1.0.0"
     author: str = "system"
     tags: List[str] = Field(default_factory=list)
+    priority: int = 100  # 数值越小优先级越高
     
     # 依赖关系
     dependencies: List[str] = Field(default_factory=list)  # 依赖的包或其他技能
     requires_packages: List[str] = Field(default_factory=list)  # Python 包依赖
+    
+    # 运行时可用性约束（gating）
+    requires_os: List[str] = Field(default_factory=list)  # 如: ["darwin", "linux"]
+    requires_bins: List[str] = Field(default_factory=list)  # 如: ["python3", "ffmpeg"]
+    requires_envs: List[str] = Field(default_factory=list)  # 如: ["SERPAPI_API_KEY"]
     
     # 触发配置
     trigger_type: SkillTriggerType = SkillTriggerType.AUTO_DETECT
@@ -277,7 +283,11 @@ class Skill(BaseModel):
             "version": self.metadata.version,
             "author": self.metadata.author,
             "tags": self.metadata.tags,
+            "priority": self.metadata.priority,
             "category": self.metadata.category,
+            "requires_os": self.metadata.requires_os,
+            "requires_bins": self.metadata.requires_bins,
+            "requires_envs": self.metadata.requires_envs,
             "trigger_type": self.metadata.trigger_type.value,
             "trigger_keywords": self.metadata.trigger_keywords,
             "resources": [

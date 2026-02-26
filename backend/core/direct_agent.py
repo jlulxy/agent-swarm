@@ -13,12 +13,13 @@ Direct Agent - 普通模式 Agent
 import asyncio
 import uuid
 import json
+import time
 from typing import Dict, List, Optional, Any, AsyncGenerator
 from datetime import datetime
 
 from core.models import AgentStatus, TaskSession
 from llm.provider import LLMProviderFactory, LLMMessage, LLMConfig
-from skills import list_skills, get_global_registry
+from skills import list_skills, get_global_registry, get_runtime_manager
 from skills.executor import SkillExecutor, AgentSkillSet
 from agui.events import (
     EventFactory,
@@ -119,6 +120,7 @@ class DirectAgent:
             agent_name="Assistant",
         )
         self._init_all_skills()
+        self.runtime_manager = get_runtime_manager()
         
         # 会话管理
         self.sessions: Dict[str, TaskSession] = {}
@@ -183,40 +185,60 @@ class DirectAgent:
                 except Exception as e:
                     print(f"[DirectAgent] Memory retrieval failed (non-blocking): {e}")
             
+            # ===== 运行时技能快照与预算 =====
+            runtime_budget = self.runtime_manager.get_budget()
+            runtime_skill_names = self.runtime_manager.resolve_skills_for_session(
+                self.session_id,
+                task=task,
+            )
+            # 确保本 Agent 已分配这些技能（支持运行时新增技能）
+            self.skill_set.assign_skills(runtime_skill_names)
+            tool_definitions = self.skill_set.executor.get_tool_definitions(runtime_skill_names)
+
             # ===== 构建系统提示 =====
             skills_prompt = ""
-            tool_definitions = self.skill_set.get_tool_definitions()
             if tool_definitions:
-                skills_prompt = "## 可用工具\n你可以调用以下工具来辅助完成任务。"
-            
+                skills_prompt = (
+                    "## 可用工具\n"
+                    f"你可以调用以下工具来辅助完成任务（本轮最多 {len(tool_definitions)} 个）。"
+                )
+
             memory_prompt = ""
             if user_memory_text:
                 memory_prompt = f"## 👤 用户偏好与记忆\n{user_memory_text}"
-            
+
             system_prompt = DIRECT_AGENT_SYSTEM_PROMPT.format(
                 skills_prompt=skills_prompt,
                 memory_prompt=memory_prompt,
                 current_time=datetime.now().strftime("%Y年%m月%d日 %H:%M:%S（%A）"),
             )
-            
+
             # ===== 构建消息 =====
             messages = [
                 LLMMessage(role="system", content=system_prompt),
             ]
-            
+
             # 添加对话历史
             messages.extend(self.conversation_history)
-            
+
             # 添加当前任务
             messages.append(LLMMessage(role="user", content=task))
-            
+
             # ===== 执行 LLM（带 tool calling 循环）=====
             session.status = AgentStatus.RUNNING
-            
+
             message_id = f"direct-{run_id}"
-            
+
             full_response = ""
-            max_tool_rounds = 4
+            max_tool_rounds = runtime_budget.max_tool_rounds
+            total_tool_time_budget = runtime_budget.max_total_tool_time_sec
+            tool_loop_started_at = time.monotonic()
+
+            print(
+                f"[DirectAgent] Runtime skill snapshot: {len(runtime_skill_names)} skills, "
+                f"max_rounds={max_tool_rounds}, detect_timeout={runtime_budget.tool_detect_timeout_sec}s, "
+                f"skill_timeout={runtime_budget.skill_exec_timeout_sec}s, total_tool_budget={total_tool_time_budget}s"
+            )
             
             # 多轮工具调用循环
             # 策略：每轮用 chat_complete (非流式) 检测 LLM 是否需要工具
@@ -227,13 +249,26 @@ class DirectAgent:
             for tool_round in range(max_tool_rounds):
                 if not tool_definitions:
                     break
+
+                elapsed_tool_time = time.monotonic() - tool_loop_started_at
+                if elapsed_tool_time >= total_tool_time_budget:
+                    print(
+                        f"[DirectAgent] Tool time budget exhausted ({elapsed_tool_time:.1f}s >= {total_tool_time_budget}s), "
+                        "fallback to final streaming response"
+                    )
+                    yield AgentThinkingEvent(
+                        agent_id=self.agent_id,
+                        agent_name="Assistant",
+                        thinking="工具检索预算已用完，先基于当前信息给出结论。",
+                    )
+                    break
                 
                 print(f"[DirectAgent] Tool round {tool_round + 1}/{max_tool_rounds}, calling LLM (non-streaming for tool detection)...")
                 try:
                     # 防止后续轮次在非流式 tool 检测阶段长时间卡住
                     response = await asyncio.wait_for(
                         self.provider.chat_complete(messages, self.llm_config, tools=tool_definitions),
-                        timeout=60,
+                        timeout=runtime_budget.tool_detect_timeout_sec,
                     )
                 except asyncio.TimeoutError:
                     print(f"[DirectAgent] Tool detection timeout in round {tool_round + 1}, fallback to final streaming response")
@@ -299,7 +334,7 @@ class DirectAgent:
                                 script_name=self._get_skill_script(func_name),
                                 script_args=self._build_script_args(func_name, func_args),
                             ),
-                            timeout=45,
+                            timeout=runtime_budget.skill_exec_timeout_sec,
                         )
                         
                         tool_result_str = result.result if result.success else (result.error or "执行失败")
@@ -586,4 +621,5 @@ class DirectAgent:
         """清理资源"""
         self.sessions.clear()
         self.conversation_history.clear()
+        self.runtime_manager.clear_session_snapshot(self.session_id)
         print(f"[DirectAgent] Session {self.session_id[:8]}... cleaned up")

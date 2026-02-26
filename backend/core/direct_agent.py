@@ -316,9 +316,15 @@ class DirectAgent:
                             }, ensure_ascii=False),
                         )
                         
+                        # 控制单条工具结果长度，避免多轮工具后上下文膨胀导致后续轮次变慢/卡住
+                        compact_tool_result = json.dumps({
+                            "success": result.success,
+                            "summary": result.summary or "",
+                            "result_preview": str(tool_result_str)[:1200] if tool_result_str else "",
+                        }, ensure_ascii=False)
                         messages.append(LLMMessage(
                             role="tool",
-                            content=str(tool_result_str) if tool_result_str else "无结果",
+                            content=compact_tool_result,
                             tool_call_id=tool_call_id,
                         ))
                         

@@ -691,13 +691,46 @@ class MasterAgent:
         
         # 流式生成最终报告
         final_report = ""
+        final_chunk_count = 0
         async for chunk in self.provider.chat(messages, self.llm_config):
+            final_chunk_count += 1
             final_report += chunk
             yield TextMessageContentEvent(
                 message_id=f"integrating-{run_id}",
                 delta=chunk
             )
-        
+
+        # 极端兜底：整合流返回空时补一次非流式整合
+        if not final_report.strip():
+            print("[MasterAgent] Integration stream empty, fallback to chat_complete")
+            try:
+                fallback_config = self.llm_config.model_copy(deep=True)
+                fallback_config.max_tokens = min(fallback_config.max_tokens, 2048)
+                fallback_resp = await self.provider.chat_complete(messages, fallback_config)
+                fallback_text = (fallback_resp.get("content") or "").strip()
+                if fallback_text:
+                    final_report = fallback_text
+                    yield TextMessageContentEvent(
+                        message_id=f"integrating-{run_id}",
+                        delta=fallback_text
+                    )
+                    print(f"[MasterAgent] Integration fallback success: len={len(fallback_text)}")
+                else:
+                    final_report = "（所有子角色已完成，但整合阶段未产出文本。请让我立即重新整合一次。）"
+                    yield TextMessageContentEvent(
+                        message_id=f"integrating-{run_id}",
+                        delta=final_report
+                    )
+                    print("[MasterAgent] Integration fallback still empty, emitted default notice")
+            except Exception as e:
+                final_report = "（所有子角色已完成，但整合阶段出现异常。请让我重新整合。）"
+                yield TextMessageContentEvent(
+                    message_id=f"integrating-{run_id}",
+                    delta=final_report
+                )
+                print(f"[MasterAgent] Integration fallback error: {e}")
+
+        print(f"[MasterAgent] Integration stream done: chunks={final_chunk_count}, report_len={len(final_report)}")
         session.final_report = final_report
     
     def _build_integration_prompt(

@@ -79,6 +79,7 @@ class SubagentRuntime:
         
         # 用户记忆偏好
         self.user_memory = user_memory
+        self.runtime_budget = None
         self._init_skill_set()
         
         # 对话历史
@@ -147,6 +148,7 @@ class SubagentRuntime:
         except ImportError as e:
             logger.warning(f"技能系统初始化失败: {e}")
             self.skill_set = None
+            self.runtime_budget = None
     
     @property
     def agent_id(self) -> str:
@@ -680,130 +682,214 @@ class SubagentRuntime:
         ])
         
         return "\n".join(prompt_parts)
+
+    def _budget_value(self, name: str, default: int) -> int:
+        budget = getattr(self, "runtime_budget", None)
+        if budget is None:
+            return default
+        value = getattr(budget, name, default)
+        if isinstance(value, int) and value > 0:
+            return value
+        return default
+
+    def _compact_tool_result_content(self, success: bool, summary: str, result_text: str, error: str) -> str:
+        return json.dumps({
+            "success": success,
+            "summary": summary,
+            "result_preview": (result_text or "")[:1200],
+            "error": error,
+        }, ensure_ascii=False)
+
+    async def _execute_skill_with_guard(
+        self,
+        skill_name: str,
+        task_desc: str,
+        func_args: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        exec_timeout = self._budget_value("skill_exec_timeout_sec", 45)
+
+        try:
+            skill_obj = self.skill_set.executor.registry.get(skill_name) if self.skill_set else None
+            has_scripts = bool(skill_obj and len(skill_obj.get_scripts()) > 0)
+
+            if has_scripts and skill_obj is not None:
+                scripts = skill_obj.get_scripts()
+                script_name = scripts[0].path.split("/")[-1] if scripts else None
+                script_args = self._build_script_args(skill_name, func_args)
+                result = await asyncio.wait_for(
+                    self.skill_set.execute_skill(
+                        skill_name=skill_name,
+                        task=task_desc,
+                        mode="script",
+                        script_name=script_name,
+                        script_args=script_args,
+                    ),
+                    timeout=exec_timeout,
+                )
+            else:
+                result = await asyncio.wait_for(
+                    self.skill_set.execute_skill(
+                        skill_name=skill_name,
+                        task=task_desc,
+                        mode="prompt",
+                    ),
+                    timeout=exec_timeout,
+                )
+
+            result_text = str(result.result or "")
+            return {
+                "success": bool(result.success),
+                "summary": result.summary or "",
+                "error": result.error or "",
+                "result_preview": result_text[:500],
+                "tool_message_content": self._compact_tool_result_content(
+                    bool(result.success),
+                    result.summary or "",
+                    result_text,
+                    result.error or "",
+                ),
+            }
+        except asyncio.TimeoutError:
+            timeout_error = f"技能执行超时 ({exec_timeout}s)"
+            return {
+                "success": False,
+                "summary": timeout_error,
+                "error": timeout_error,
+                "result_preview": "",
+                "tool_message_content": self._compact_tool_result_content(False, timeout_error, "", timeout_error),
+            }
+        except Exception as e:
+            err = str(e)
+            return {
+                "success": False,
+                "summary": f"Error: {err}",
+                "error": err,
+                "result_preview": "",
+                "tool_message_content": self._compact_tool_result_content(False, f"Error: {err}", "", err),
+            }
     
     async def _execute_iteration(self) -> str:
-        """执行一次迭代（支持 tool calling）
-        
-        如果 subagent 有已分配技能的 tool 定义，会将 tools 传递给 LLM，
-        并在 LLM 返回 tool_calls 时自动执行对应技能、将结果反馈给 LLM。
-        """
+        """执行一次迭代（支持 tool calling）"""
         tools = self._tool_definitions if self._tool_definitions else None
-        max_tool_rounds = 3  # 单次迭代最多执行 3 轮工具调用
-        
-        for tool_round in range(max_tool_rounds + 1):
-            response = await self.provider.chat_complete(
-                self.messages, self.llm_config, tools=tools
+        max_tool_rounds = self._budget_value("max_tool_rounds", 4)
+        detect_timeout = self._budget_value("tool_detect_timeout_sec", 60)
+        total_tool_budget = self._budget_value("max_total_tool_time_sec", 180)
+        tool_started_at = datetime.now().timestamp()
+
+        for tool_round in range(max_tool_rounds):
+            if not tools or not self.skill_set:
+                break
+
+            elapsed = datetime.now().timestamp() - tool_started_at
+            if elapsed >= total_tool_budget:
+                logger.warning(
+                    "Subagent %s tool budget exhausted (%.2fs/%ss), fallback to final text",
+                    self.agent_name,
+                    elapsed,
+                    total_tool_budget,
+                )
+                break
+
+            context_chars = sum(len(m.content or "") for m in self.messages)
+            logger.info(
+                "Subagent %s tool round %s/%s detect start: context_chars=%s timeout=%ss",
+                self.agent_name,
+                tool_round + 1,
+                max_tool_rounds,
+                context_chars,
+                detect_timeout,
             )
+
+            detect_task = asyncio.create_task(
+                self.provider.chat_detect_tools_stream(self.messages, self.llm_config, tools=tools)
+            )
+            done, _ = await asyncio.wait({detect_task}, timeout=detect_timeout)
+            if not done:
+                detect_task.cancel()
+                logger.warning(
+                    "Subagent %s tool round %s hard-timeout (%ss), fallback to final text",
+                    self.agent_name,
+                    tool_round + 1,
+                    detect_timeout,
+                )
+                break
+
+            try:
+                response = detect_task.result()
+            except Exception as e:
+                logger.warning(
+                    "Subagent %s tool round %s detect error: %s, fallback to final text",
+                    self.agent_name,
+                    tool_round + 1,
+                    str(e),
+                )
+                break
+
             content = response.get("content", "")
             tool_calls = response.get("tool_calls")
-            
-            if not tool_calls or not self.skill_set:
-                # 没有工具调用或无技能集，直接返回文本响应
+            logger.info(
+                "Subagent %s tool round %s detect done: finish_reason=%s content_len=%s tool_calls=%s",
+                self.agent_name,
+                tool_round + 1,
+                response.get("finish_reason"),
+                len(content),
+                len(tool_calls) if tool_calls else 0,
+            )
+
+            if not tool_calls:
                 self.messages.append(LLMMessage(role="assistant", content=content))
                 self.state.thinking = content
                 self.state.partial_result = content
-                if self.on_thinking:
+                if self.on_thinking and content:
                     self.on_thinking(self.agent_id, content)
                 return content
-            
-            # 有工具调用 => 执行技能并继续对话
-            logger.info(
-                "Subagent %s tool calls: %s",
-                self.agent_name,
-                [tc.get("function", {}).get("name") for tc in tool_calls],
-            )
-            
-            # 记录 assistant 消息（带 tool_calls）
+
             self.messages.append(LLMMessage(
                 role="assistant",
                 content=content or "",
                 tool_calls=tool_calls,
             ))
-            
-            # 执行每个工具调用
+
             for tc in tool_calls:
                 tc_id = tc.get("id", str(uuid.uuid4()))
                 func_name = tc.get("function", {}).get("name", "")
                 func_args_str = tc.get("function", {}).get("arguments", "{}")
-                
+
                 try:
                     func_args = json.loads(func_args_str) if isinstance(func_args_str, str) else func_args_str
                 except json.JSONDecodeError:
                     func_args = {"task": func_args_str}
-                
+
                 skill_name = self._skill_name_map.get(func_name, func_name)
                 task_desc = func_args.get("task", func_args.get("query", str(func_args)))
-                
-                logger.info("Subagent %s executing skill: %s task=%s", self.agent_name, skill_name, task_desc[:100])
-                
-                # 回调通知
+
                 if self.on_tool_call:
                     self.on_tool_call(self.agent_id, ToolCall(
                         id=tc_id,
                         name=func_name,
                         arguments=func_args if isinstance(func_args, dict) else {"task": str(func_args)},
                     ))
-                
-                # 通过 AgentSkillSet 执行技能（确保权限检查）
-                try:
-                    # 判断技能是否有脚本可执行
-                    skill_name_str = skill_name or func_name
-                    skill_obj = self.skill_set.executor.registry.get(skill_name_str)
-                    has_scripts = skill_obj and len(skill_obj.get_scripts()) > 0
-                    
-                    if has_scripts and skill_obj is not None:
-                        # 有脚本 => 用 hybrid 或 script 模式执行
-                        scripts = skill_obj.get_scripts()
-                        script_name = scripts[0].path.split("/")[-1] if scripts else None
-                        
-                        # 构建脚本参数
-                        script_args = self._build_script_args(skill_name_str, func_args)
-                        
-                        result = await self.skill_set.execute_skill(
-                            skill_name=skill_name_str,
-                            task=task_desc,
-                            mode="script",
-                            script_name=script_name,
-                            script_args=script_args,
-                        )
-                    else:
-                        # 无脚本 => prompt 注入模式
-                        result = await self.skill_set.execute_skill(
-                            skill_name=skill_name_str,
-                            task=task_desc,
-                            mode="prompt",
-                        )
-                    
-                    tool_result_content = json.dumps({
-                        "success": result.success,
-                        "result": result.result,
-                        "summary": result.summary,
-                        "error": result.error,
-                    }, ensure_ascii=False)
-                except Exception as e:
-                    logger.error("Skill execution error: %s %s", skill_name, e)
-                    tool_result_content = json.dumps({
-                        "success": False,
-                        "error": str(e),
-                    }, ensure_ascii=False)
-                
-                # 添加 tool 结果消息
+
+                tool_result = await self._execute_skill_with_guard(
+                    skill_name=skill_name or func_name,
+                    task_desc=task_desc,
+                    func_args=func_args if isinstance(func_args, dict) else {"task": str(func_args)},
+                )
+
                 self.messages.append(LLMMessage(
                     role="tool",
-                    content=tool_result_content,
+                    content=tool_result["tool_message_content"],
                     tool_call_id=tc_id,
                     name=func_name,
                 ))
-            
-            # 工具结果已加入消息，继续下一轮让 LLM 消化结果
-        
-        # 达到最大工具轮次，做一次不带 tools 的调用获取最终回复
+
+        # 工具轮次结束后，回到纯文本总结
         response = await self.provider.chat_complete(self.messages, self.llm_config)
         content = response.get("content", "")
         self.messages.append(LLMMessage(role="assistant", content=content))
         self.state.thinking = content
         self.state.partial_result = content
-        if self.on_thinking:
+        if self.on_thinking and content:
             self.on_thinking(self.agent_id, content)
         return content
     
@@ -839,65 +925,98 @@ class SubagentRuntime:
         return args
     
     async def _stream_iteration_with_tools(self) -> AsyncGenerator[Dict[str, Any], None]:
-        """流式迭代 + tool calling 支持
-        
-        改为 AsyncGenerator，实时 yield 事件：
-        - thinking: LLM 的中间思考/分析（工具决策时的 content）
-        - tool_call_start / tool_call_result: 工具调用过程
-        - final_content: 最终无工具调用时的完整回复（用于完成判断）
-        
-        最终回复走流式 chat()，实时推送给前端。
-        """
+        """流式迭代 + tool calling 支持"""
         tools = self._tool_definitions if self._tool_definitions else None
-        max_tool_rounds = 3
-        
-        # 工具调用循环：用非流式检测 tool_calls
+        max_tool_rounds = self._budget_value("max_tool_rounds", 4)
+        detect_timeout = self._budget_value("tool_detect_timeout_sec", 60)
+        total_tool_budget = self._budget_value("max_total_tool_time_sec", 180)
+        tool_started_at = datetime.now().timestamp()
+
         for tool_round in range(max_tool_rounds):
             if not tools or not self.skill_set:
                 break
-            
-            response = await self.provider.chat_complete(
-                self.messages, self.llm_config, tools=tools
+
+            elapsed = datetime.now().timestamp() - tool_started_at
+            if elapsed >= total_tool_budget:
+                logger.warning(
+                    "Stream subagent %s tool budget exhausted (%.2fs/%ss), fallback to final stream",
+                    self.agent_name,
+                    elapsed,
+                    total_tool_budget,
+                )
+                break
+
+            context_chars = sum(len(m.content or "") for m in self.messages)
+            logger.info(
+                "Stream subagent %s tool round %s/%s detect start: context_chars=%s timeout=%ss",
+                self.agent_name,
+                tool_round + 1,
+                max_tool_rounds,
+                context_chars,
+                detect_timeout,
             )
+
+            detect_task = asyncio.create_task(
+                self.provider.chat_detect_tools_stream(self.messages, self.llm_config, tools=tools)
+            )
+            done, _ = await asyncio.wait({detect_task}, timeout=detect_timeout)
+            if not done:
+                detect_task.cancel()
+                logger.warning(
+                    "Stream subagent %s tool round %s hard-timeout (%ss), fallback to final stream",
+                    self.agent_name,
+                    tool_round + 1,
+                    detect_timeout,
+                )
+                break
+
+            try:
+                response = detect_task.result()
+            except Exception as e:
+                logger.warning(
+                    "Stream subagent %s tool round %s detect error: %s, fallback to final stream",
+                    self.agent_name,
+                    tool_round + 1,
+                    str(e),
+                )
+                break
+
             content = response.get("content", "")
             tool_calls = response.get("tool_calls")
-            
+            logger.info(
+                "Stream subagent %s tool round %s detect done: finish_reason=%s content_len=%s tool_calls=%s",
+                self.agent_name,
+                tool_round + 1,
+                response.get("finish_reason"),
+                len(content),
+                len(tool_calls) if tool_calls else 0,
+            )
+
             if not tool_calls:
-                # 无工具调用 → 跳出循环走流式最终输出
                 break
-            
-            # 有工具调用：先推送 LLM 的决策思考（content 是调用工具前的分析）
+
             if content:
                 yield {"type": "thinking", "delta": content}
-            
-            logger.info(
-                "Subagent %s stream tool calls: %s",
-                self.agent_name,
-                [tc.get("function", {}).get("name") for tc in tool_calls],
-            )
-            
+
             self.messages.append(LLMMessage(
                 role="assistant",
                 content=content or "",
                 tool_calls=tool_calls,
             ))
-            
+
             for tc in tool_calls:
                 tc_id = tc.get("id", str(uuid.uuid4()))
                 func_name = tc.get("function", {}).get("name", "")
                 func_args_str = tc.get("function", {}).get("arguments", "{}")
-                
+
                 try:
                     func_args = json.loads(func_args_str) if isinstance(func_args_str, str) else func_args_str
                 except json.JSONDecodeError:
                     func_args = {"task": func_args_str}
-                
+
                 skill_name = self._skill_name_map.get(func_name, func_name)
                 task_desc = func_args.get("task", func_args.get("query", str(func_args)))
-                
-                logger.info("Stream subagent %s executing skill: %s task=%s", self.agent_name, skill_name, task_desc[:100])
-                
-                # 实时推送 tool_call_start
+
                 yield {
                     "type": "tool_call_start",
                     "tool_call_id": tc_id,
@@ -905,87 +1024,73 @@ class SubagentRuntime:
                     "skill_name": skill_name or func_name,
                     "arguments": func_args if isinstance(func_args, dict) else {"task": str(func_args)},
                 }
-                
+
                 if self.on_tool_call:
                     self.on_tool_call(self.agent_id, ToolCall(
                         id=tc_id,
                         name=func_name,
                         arguments=func_args if isinstance(func_args, dict) else {"task": str(func_args)},
                     ))
-                
-                try:
-                    skill_name_str = skill_name or func_name
-                    skill_obj = self.skill_set.executor.registry.get(skill_name_str)
-                    has_scripts = skill_obj and len(skill_obj.get_scripts()) > 0
-                    
-                    if has_scripts and skill_obj is not None:
-                        scripts = skill_obj.get_scripts()
-                        script_name = scripts[0].path.split("/")[-1] if scripts else None
-                        script_args = self._build_script_args(skill_name_str, func_args)
-                        
-                        result = await self.skill_set.execute_skill(
-                            skill_name=skill_name_str,
-                            task=task_desc,
-                            mode="script",
-                            script_name=script_name,
-                            script_args=script_args,
-                        )
-                    else:
-                        result = await self.skill_set.execute_skill(
-                            skill_name=skill_name_str,
-                            task=task_desc,
-                            mode="prompt",
-                        )
-                    
-                    tool_result_content = json.dumps({
-                        "success": result.success,
-                        "result": result.result,
-                        "summary": result.summary,
-                        "error": result.error,
-                    }, ensure_ascii=False)
-                    
-                    # 实时推送 tool_call_result
-                    yield {
-                        "type": "tool_call_result",
-                        "tool_call_id": tc_id,
-                        "tool_name": func_name,
-                        "skill_name": skill_name or func_name,
-                        "success": result.success,
-                        "summary": result.summary or "",
-                        "result_preview": (result.result or "")[:500],
-                    }
-                except Exception as e:
-                    logger.error("Stream skill execution error: %s %s", skill_name, e)
-                    tool_result_content = json.dumps({
-                        "success": False,
-                        "error": str(e),
-                    }, ensure_ascii=False)
-                    
-                    yield {
-                        "type": "tool_call_result",
-                        "tool_call_id": tc_id,
-                        "tool_name": func_name,
-                        "skill_name": skill_name or func_name,
-                        "success": False,
-                        "summary": f"Error: {str(e)}",
-                        "result_preview": "",
-                    }
-                
+
+                tool_result = await self._execute_skill_with_guard(
+                    skill_name=skill_name or func_name,
+                    task_desc=task_desc,
+                    func_args=func_args if isinstance(func_args, dict) else {"task": str(func_args)},
+                )
+
+                yield {
+                    "type": "tool_call_result",
+                    "tool_call_id": tc_id,
+                    "tool_name": func_name,
+                    "skill_name": skill_name or func_name,
+                    "success": tool_result["success"],
+                    "summary": tool_result["summary"],
+                    "result_preview": tool_result["result_preview"],
+                }
+
                 self.messages.append(LLMMessage(
                     role="tool",
-                    content=tool_result_content,
+                    content=tool_result["tool_message_content"],
                     tool_call_id=tc_id,
                     name=func_name,
                 ))
-        
+
         # 最终回复：走流式 chat()，实时推送 thinking chunks
         full_response = ""
+        final_chunk_count = 0
         async for chunk in self.provider.chat(self.messages, self.llm_config):
+            final_chunk_count += 1
             full_response += chunk
             yield {"type": "thinking", "delta": chunk}
-        
+
+        # 极端兜底：最终流为空时补一次非流式总结
+        if not full_response.strip():
+            logger.warning("Stream subagent %s final stream empty, fallback to chat_complete", self.agent_name)
+            try:
+                fallback_config = self.llm_config.model_copy(deep=True)
+                fallback_config.max_tokens = min(fallback_config.max_tokens, 2048)
+                fallback_resp = await self.provider.chat_complete(self.messages, fallback_config)
+                fallback_text = (fallback_resp.get("content") or "").strip()
+                if fallback_text:
+                    full_response = fallback_text
+                    yield {"type": "thinking", "delta": fallback_text}
+                else:
+                    full_response = "（已完成工具调用，但当前角色未返回最终文本。）"
+                    yield {"type": "thinking", "delta": full_response}
+            except Exception as e:
+                logger.warning("Stream subagent %s fallback final summary error: %s", self.agent_name, str(e))
+                full_response = "（已完成工具调用，但最终总结生成失败。）"
+                yield {"type": "thinking", "delta": full_response}
+
+        logger.info(
+            "Stream subagent %s final stream done: chunks=%s response_len=%s",
+            self.agent_name,
+            final_chunk_count,
+            len(full_response),
+        )
+
         self.messages.append(LLMMessage(role="assistant", content=full_response))
-        
+
         # 标记最终内容（供 run_stream 判断完成和提取结果）
         yield {"type": "final_content", "content": full_response}
     

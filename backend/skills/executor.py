@@ -254,6 +254,7 @@ class SkillExecutor:
                 error_code="SCRIPT_FILE_NOT_FOUND"
             )
         
+        process = None
         try:
             # 构建命令
             if script_path.suffix == '.py':
@@ -282,7 +283,9 @@ class SkillExecutor:
                     timeout=self.timeout_seconds
                 )
             except asyncio.TimeoutError:
-                process.kill()
+                if process.returncode is None:
+                    process.kill()
+                    await process.communicate()
                 return SkillExecutionResult(
                     skill_name=skill_name,
                     success=False,
@@ -316,6 +319,11 @@ class SkillExecutor:
             self.execution_history.append(result)
             return result
             
+        except asyncio.CancelledError:
+            if process and process.returncode is None:
+                process.kill()
+                await process.communicate()
+            raise
         except Exception as e:
             return SkillExecutionResult(
                 skill_name=skill_name,

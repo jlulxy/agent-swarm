@@ -8,6 +8,7 @@ from abc import ABC, abstractmethod
 from typing import AsyncGenerator, Optional, List, Dict, Any
 from pydantic import BaseModel
 import os
+import time
 
 
 class LLMMessage(BaseModel):
@@ -65,6 +66,15 @@ class LLMProvider(ABC):
         """非流式聊天，返回完整响应"""
         pass
 
+    async def chat_detect_tools_stream(
+        self,
+        messages: List[LLMMessage],
+        config: LLMConfig,
+        tools: Optional[List[Dict[str, Any]]] = None
+    ) -> Dict[str, Any]:
+        """流式检测 tool_calls（默认回退到非流式实现）"""
+        return await self.chat_complete(messages, config, tools=tools)
+
 
 class OpenAIProvider(LLMProvider):
     """OpenAI Provider"""
@@ -113,6 +123,129 @@ class OpenAIProvider(LLMProvider):
                 if delta and delta.content:
                     yield delta.content
     
+    async def chat_detect_tools_stream(
+        self,
+        messages: List[LLMMessage],
+        config: LLMConfig,
+        tools: Optional[List[Dict[str, Any]]] = None
+    ) -> Dict[str, Any]:
+        """流式检测 tool_calls，降低非流式长尾风险"""
+        request_params = {
+            "model": config.model,
+            "messages": [m.to_api_dict() for m in messages],
+            "temperature": config.temperature,
+            "max_tokens": config.max_tokens,
+            "stream": True,
+            # 请求级超时：防止单次 tool detection 长时间挂起
+            "timeout": 35,
+        }
+
+        if config.top_p is not None:
+            request_params["top_p"] = config.top_p
+
+        if tools:
+            request_params["tools"] = tools
+
+        print(f"[OpenAIProvider] chat_detect_tools_stream request: model={config.model}, temp={config.temperature}")
+
+        try:
+            stream = await self.client.chat.completions.create(**request_params)
+        except Exception as e:
+            print(f"[OpenAIProvider] Stream detect API Error: {type(e).__name__}: {e}")
+            raise
+
+        content_parts: List[str] = []
+        tool_calls_by_index: Dict[int, Dict[str, Any]] = {}
+        finish_reason: Optional[str] = None
+        detect_started_at = time.monotonic()
+        first_chunk_at: Optional[float] = None
+        stream_chunk_count = 0
+        content_chunk_count = 0
+        tool_delta_count = 0
+
+        try:
+            async for chunk in stream:
+                stream_chunk_count += 1
+                if first_chunk_at is None:
+                    first_chunk_at = time.monotonic()
+
+                if not chunk.choices or len(chunk.choices) == 0:
+                    continue
+
+                choice = chunk.choices[0]
+                if choice.finish_reason:
+                    finish_reason = choice.finish_reason
+
+                delta = choice.delta
+                if delta is None:
+                    continue
+
+                if delta.content:
+                    content_parts.append(delta.content)
+                    content_chunk_count += 1
+
+                if delta.tool_calls:
+                    for tc in delta.tool_calls:
+                        tool_delta_count += 1
+                        idx = tc.index if tc.index is not None else len(tool_calls_by_index)
+                        if idx not in tool_calls_by_index:
+                            tool_calls_by_index[idx] = {
+                                "id": "",
+                                "type": "function",
+                                "function": {
+                                    "name": "",
+                                    "arguments": "",
+                                },
+                            }
+
+                        entry = tool_calls_by_index[idx]
+                        if tc.id:
+                            entry["id"] = tc.id
+                        if tc.type:
+                            entry["type"] = tc.type
+                        if tc.function:
+                            if tc.function.name:
+                                entry["function"]["name"] = tc.function.name
+                            if tc.function.arguments:
+                                entry["function"]["arguments"] += tc.function.arguments
+        except Exception as e:
+            elapsed = time.monotonic() - detect_started_at
+            ttfb = (first_chunk_at - detect_started_at) if first_chunk_at else None
+            print(
+                f"[OpenAIProvider] Stream detect loop error: {type(e).__name__}: {e}, "
+                f"elapsed={elapsed:.2f}s, chunks={stream_chunk_count}, "
+                f"content_chunks={content_chunk_count}, tool_deltas={tool_delta_count}, "
+                f"ttfb={f'{ttfb:.2f}s' if ttfb is not None else 'none'}"
+            )
+            raise
+
+        tool_calls = None
+        if tool_calls_by_index:
+            tool_calls = []
+            for idx in sorted(tool_calls_by_index.keys()):
+                item = tool_calls_by_index[idx]
+                if not item["id"]:
+                    item["id"] = f"tool_call_{idx}"
+                if not item["function"]["arguments"]:
+                    item["function"]["arguments"] = "{}"
+                tool_calls.append(item)
+
+        content = "".join(content_parts)
+        elapsed = time.monotonic() - detect_started_at
+        ttfb = (first_chunk_at - detect_started_at) if first_chunk_at else None
+        print(
+            f"[OpenAIProvider] Stream detect done: finish_reason={finish_reason}, content_len={len(content)}, "
+            f"tool_calls={len(tool_calls) if tool_calls else 0}, elapsed={elapsed:.2f}s, "
+            f"chunks={stream_chunk_count}, content_chunks={content_chunk_count}, tool_deltas={tool_delta_count}, "
+            f"ttfb={f'{ttfb:.2f}s' if ttfb is not None else 'none'}"
+        )
+
+        return {
+            "content": content,
+            "tool_calls": tool_calls,
+            "finish_reason": finish_reason,
+        }
+
     async def chat_complete(
         self,
         messages: List[LLMMessage],

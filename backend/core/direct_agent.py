@@ -263,25 +263,74 @@ class DirectAgent:
                     )
                     break
                 
-                print(f"[DirectAgent] Tool round {tool_round + 1}/{max_tool_rounds}, calling LLM (non-streaming for tool detection)...")
-                try:
-                    # 防止后续轮次在非流式 tool 检测阶段长时间卡住
-                    response = await asyncio.wait_for(
-                        self.provider.chat_complete(messages, self.llm_config, tools=tool_definitions),
-                        timeout=runtime_budget.tool_detect_timeout_sec,
+                context_chars = sum(len(m.content or "") for m in messages)
+                round_detect_timeout = runtime_budget.tool_detect_timeout_sec
+                # 第4轮常因上下文膨胀出现长尾，避免把超时压得过短；同时保证总预算控制
+                if tool_round >= 2:
+                    round_detect_timeout = max(round_detect_timeout, 30)
+                if tool_round >= 3:
+                    round_detect_timeout = max(round_detect_timeout, 45)
+
+                print(
+                    f"[DirectAgent] Tool round {tool_round + 1}/{max_tool_rounds}, "
+                    f"context_chars≈{context_chars}, timeout={round_detect_timeout}s"
+                )
+                detect_started_at = time.monotonic()
+                detect_task = asyncio.create_task(
+                    self.provider.chat_detect_tools_stream(messages, self.llm_config, tools=tool_definitions)
+                )
+                done, _ = await asyncio.wait(
+                    {detect_task},
+                    timeout=round_detect_timeout,
+                )
+                detect_elapsed = time.monotonic() - detect_started_at
+                if not done:
+                    # 某些底层客户端在取消时可能无法及时响应，这里采用“硬超时”降级，避免会话卡死
+                    detect_task.cancel()
+                    print(
+                        f"[DirectAgent] Tool detection hard-timeout in round {tool_round + 1} "
+                        f"({detect_elapsed:.2f}s/{round_detect_timeout}s, context_chars≈{context_chars}), "
+                        "fallback to final streaming response"
                     )
-                except asyncio.TimeoutError:
-                    print(f"[DirectAgent] Tool detection timeout in round {tool_round + 1}, fallback to final streaming response")
                     yield AgentThinkingEvent(
                         agent_id=self.agent_id,
                         agent_name="Assistant",
                         thinking="工具检索达到时限，先基于已有信息继续生成完整结论。",
                     )
                     break
-                
+                try:
+                    response = detect_task.result()
+                except asyncio.CancelledError:
+                    print(
+                        f"[DirectAgent] Tool detection task cancelled in round {tool_round + 1} "
+                        f"after {detect_elapsed:.2f}s, fallback to final streaming response"
+                    )
+                    yield AgentThinkingEvent(
+                        agent_id=self.agent_id,
+                        agent_name="Assistant",
+                        thinking="工具检索被中断，先基于已有信息继续生成完整结论。",
+                    )
+                    break
+                except Exception as e:
+                    print(
+                        f"[DirectAgent] Tool detection error in round {tool_round + 1} "
+                        f"after {detect_elapsed:.2f}s: {e}, fallback to final streaming response"
+                    )
+                    yield AgentThinkingEvent(
+                        agent_id=self.agent_id,
+                        agent_name="Assistant",
+                        thinking="工具检索出现异常，先基于已有信息继续生成完整结论。",
+                    )
+                    break
+
                 content = response.get("content", "")
                 tool_calls = response.get("tool_calls")
-                
+                print(
+                    f"[DirectAgent] Tool round {tool_round + 1} detect done in {detect_elapsed:.2f}s: "
+                    f"finish_reason={response.get('finish_reason')}, content_len={len(content)}, "
+                    f"tool_calls={len(tool_calls) if tool_calls else 0}"
+                )
+
                 if not tool_calls:
                     # LLM 不再需要工具 → 跳出循环走流式最终回答
                     print(f"[DirectAgent] No tool calls in round {tool_round + 1}, proceeding to final response")
@@ -397,16 +446,62 @@ class DirectAgent:
             
             # TEXT_MESSAGE_START：在工具调用循环后发出
             yield TextMessageStartEvent(message_id=message_id, role="assistant")
-            
+
             # 最终文本回复：流式输出（不带 tools 参数，LLM 纯文本生成最终回答）
             print(f"[DirectAgent] Final streaming response...")
+            final_started_at = time.monotonic()
+            first_chunk_at: Optional[float] = None
+            final_chunk_count = 0
             async for chunk in self.provider.chat(messages, self.llm_config):
+                if first_chunk_at is None:
+                    first_chunk_at = time.monotonic()
+                final_chunk_count += 1
                 full_response += chunk
                 yield TextMessageContentEvent(
                     message_id=message_id,
                     delta=chunk
                 )
-            
+
+            final_elapsed = time.monotonic() - final_started_at
+            ttfb = (first_chunk_at - final_started_at) if first_chunk_at else None
+            print(
+                f"[DirectAgent] Final stream done: chunks={final_chunk_count}, "
+                f"response_len={len(full_response)}, elapsed={final_elapsed:.2f}s, "
+                f"ttfb={f'{ttfb:.2f}s' if ttfb is not None else 'none'}"
+            )
+
+            # 极端兜底：流式阶段没有任何正文时，补一次非流式最终总结，避免“工具结束但无最终回答”
+            if not full_response.strip():
+                print("[DirectAgent] Final stream returned empty content, fallback to non-streaming final summary")
+                try:
+                    fallback_config = self.llm_config.model_copy(deep=True)
+                    fallback_config.max_tokens = min(fallback_config.max_tokens, 2048)
+                    fallback_resp = await self.provider.chat_complete(messages, fallback_config)
+                    fallback_text = (fallback_resp.get("content") or "").strip()
+                    if fallback_text:
+                        full_response = fallback_text
+                        yield TextMessageContentEvent(
+                            message_id=message_id,
+                            delta=fallback_text
+                        )
+                        print(f"[DirectAgent] Fallback non-stream summary success: len={len(fallback_text)}")
+                    else:
+                        fallback_text = "（已完成工具调用，但模型未返回最终文本。请让我基于已有结果重新总结一次。）"
+                        full_response = fallback_text
+                        yield TextMessageContentEvent(
+                            message_id=message_id,
+                            delta=fallback_text
+                        )
+                        print("[DirectAgent] Fallback non-stream summary still empty, emitted default notice")
+                except Exception as e:
+                    fallback_text = "（已完成工具调用，但最终总结生成失败。你可以让我立即基于已检索结果重试总结。）"
+                    full_response = fallback_text
+                    yield TextMessageContentEvent(
+                        message_id=message_id,
+                        delta=fallback_text
+                    )
+                    print(f"[DirectAgent] Fallback non-stream summary error: {e}")
+
             yield TextMessageEndEvent(message_id=message_id)
             
             # ===== 更新对话历史（完整保存 tool calling 链）=====
@@ -497,9 +592,13 @@ class DirectAgent:
                     args.extend(["--region", str(options["region"])])
                 if options.get("time_range"):
                     args.extend(["--time-range", str(options["time_range"])])
-            # 默认返回更多结果
+                if options.get("timeout"):
+                    args.extend(["--timeout", str(options["timeout"])])
+            # 默认返回更多结果，并收紧脚本内部网络超时，避免工具卡住
             if "--max-results" not in args:
                 args.extend(["--max-results", "8"])
+            if "--timeout" not in args:
+                args.extend(["--timeout", "12"])
             return args
         
         # sougou-search skill: search.py 需要 --query 参数
@@ -509,8 +608,12 @@ class DirectAgent:
             if isinstance(options, dict):
                 if options.get("max_results"):
                     args.extend(["--max-results", str(options["max_results"])])
+                if options.get("timeout"):
+                    args.extend(["--timeout", str(options["timeout"])])
             if "--max-results" not in args:
                 args.extend(["--max-results", "10"])
+            if "--timeout" not in args:
+                args.extend(["--timeout", "12"])
             return args
         
         # 其他 skill 使用通用格式

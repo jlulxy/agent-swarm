@@ -454,18 +454,7 @@ export function useAgui() {
       let currentEvent = '';
       let currentData = '';
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) {
-          console.log('[SSE Parse] Stream done. Remaining buffer:', buffer ? `"${buffer}"` : '(empty)');
-          break;
-        }
-
-        const chunk = decoder.decode(value, { stream: true });
-        console.log(`[SSE Parse] reader.read() chunk (${chunk.length} chars):`, chunk.length > 200 ? chunk.slice(0, 200) + '...' : chunk);
-        buffer += chunk;
-        
-        // 解析 SSE 事件
+      const processSseBuffer = () => {
         const lines = buffer.split('\n');
         buffer = lines.pop() || '';
 
@@ -501,6 +490,93 @@ export function useAgui() {
               console.warn(`[SSE Parse] Incomplete event at empty line: event="${currentEvent}", hasData=${!!currentData}`);
             }
           }
+        }
+      };
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          console.log('[SSE Parse] Stream done. Remaining buffer:', buffer ? `"${buffer}"` : '(empty)');
+          // 连接结束前再强制 flush 一次，避免最后一个事件无空行分隔时被丢弃
+          if (buffer || currentEvent || currentData) {
+            buffer += '\n\n';
+            processSseBuffer();
+          }
+          break;
+        }
+
+        const chunk = decoder.decode(value, { stream: true });
+        console.log(`[SSE Parse] reader.read() chunk (${chunk.length} chars):`, chunk.length > 200 ? chunk.slice(0, 200) + '...' : chunk);
+        buffer += chunk;
+        processSseBuffer();
+      }
+
+      // 流结束后对账：校正会话状态，并在必要时补拉最终消息，避免 UI 显示“已完成但无最终输出”
+      if (streamSessionId) {
+        try {
+          const statusResp = await fetch(`/api/session/${streamSessionId}`, {
+            headers: { ...getAuthHeader() },
+          });
+
+          let sessionStatus: string | undefined;
+          let sessionError: string | undefined;
+          if (statusResp.ok) {
+            const payload = await statusResp.json();
+            sessionStatus = payload?.data?.status;
+            sessionError = payload?.data?.error;
+          }
+
+          const stateNow = useStore.getState();
+          const active = stateNow.activeSessionId ? stateNow.sessions[stateNow.activeSessionId] : null;
+          const isTargetActive = !!active && active.id === streamSessionId;
+
+          if (isTargetActive && sessionStatus === 'completed') {
+            setStatus(AgentStatus.COMPLETED);
+          } else if (isTargetActive && sessionStatus === 'error') {
+            setStatus(AgentStatus.FAILED);
+            if (sessionError) {
+              setError(sessionError);
+            }
+          }
+
+          const targetSession = stateNow.sessions[streamSessionId];
+          const hasAssistantOutput = !!targetSession?.messages?.some(
+            (m) => m.role === 'assistant' && !!m.content?.trim()
+          );
+
+          // 后端已完成但前端没拿到最终文本时，补拉一次消息历史
+          if (sessionStatus === 'completed' && !hasAssistantOutput && isTargetActive) {
+            const liveResp = await fetch(`/api/session/${streamSessionId}/live-state`, {
+              headers: { ...getAuthHeader() },
+            });
+
+            if (liveResp.ok) {
+              const livePayload = await liveResp.json();
+              const messages = livePayload?.data?.messages || [];
+              const store = useStore.getState();
+
+              for (const msg of messages) {
+                if (!msg?.message_id || !msg?.role) continue;
+                store.addMessage({
+                  id: msg.message_id,
+                  role: msg.role as 'assistant' | 'user' | 'system',
+                  content: msg.content || '',
+                  timestamp: msg.timestamp || new Date().toISOString(),
+                });
+              }
+
+              const refreshed = useStore.getState().sessions[streamSessionId];
+              const latestAssistant = [...(refreshed?.messages || [])]
+                .reverse()
+                .find((m) => m.role === 'assistant' && !!m.content?.trim());
+              if (latestAssistant?.content) {
+                useStore.getState().setFinalReport(latestAssistant.content.slice(0, 2000));
+              }
+              console.log(`[useAgui] Backfilled ${messages.length} message(s) for session ${streamSessionId}`);
+            }
+          }
+        } catch (e) {
+          console.warn('[useAgui] Failed to reconcile session after stream end:', e);
         }
       }
     } catch (error) {

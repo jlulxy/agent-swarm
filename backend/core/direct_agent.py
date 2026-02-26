@@ -216,7 +216,7 @@ class DirectAgent:
             message_id = f"direct-{run_id}"
             
             full_response = ""
-            max_tool_rounds = 5
+            max_tool_rounds = 4
             
             # 多轮工具调用循环
             # 策略：每轮用 chat_complete (非流式) 检测 LLM 是否需要工具

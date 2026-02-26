@@ -290,12 +290,16 @@ class DirectAgent:
                         
                         print(f"[DirectAgent] Executing skill: {func_name}, task: {task_desc[:80]}")
                         
-                        result = await self.skill_set.execute_skill(
-                            skill_name=func_name,
-                            task=task_desc,
-                            mode=self._get_skill_mode(func_name),
-                            script_name=self._get_skill_script(func_name),
-                            script_args=self._build_script_args(func_name, func_args),
+                        # 单个技能执行超时保护，避免某个技能卡住整轮
+                        result = await asyncio.wait_for(
+                            self.skill_set.execute_skill(
+                                skill_name=func_name,
+                                task=task_desc,
+                                mode=self._get_skill_mode(func_name),
+                                script_name=self._get_skill_script(func_name),
+                                script_args=self._build_script_args(func_name, func_args),
+                            ),
+                            timeout=45,
                         )
                         
                         tool_result_str = result.result if result.success else (result.error or "执行失败")
